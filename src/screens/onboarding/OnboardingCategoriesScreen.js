@@ -58,7 +58,7 @@ export default function OnboardingCategoriesScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text style={styles.stepLabel}>Step 1 of 2</Text>
+        <Text style={styles.stepLabel}>Step 1 of 3</Text>
         <Text style={styles.title}>Create your categories</Text>
         <Text style={styles.subtitle}>
           Categories are the buckets your tasks live in — like "Music", "Fitness", or "Work".
@@ -102,7 +102,7 @@ export default function OnboardingCategoriesScreen({ navigation }) {
       <View style={styles.footer}>
         <TouchableOpacity
           style={[styles.continueBtn, !canContinue && styles.continueBtnDisabled]}
-          onPress={() => navigation.navigate('OnboardingTasks')}
+          onPress={() => navigation.navigate('OnboardingSchedule')}
           disabled={!canContinue}
         >
           <Text style={[styles.continueBtnText, !canContinue && styles.continueBtnTextDisabled]}>

@@ -53,7 +53,7 @@ export default function OnboardingTasksScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text style={styles.stepLabel}>Step 2 of 2</Text>
+        <Text style={styles.stepLabel}>Step 3 of 3</Text>
         <Text style={styles.title}>Add tasks to your goal bank</Text>
         <Text style={styles.subtitle}>
           Your goal bank is where all your tasks live. Each day you pick from it to build your plan.

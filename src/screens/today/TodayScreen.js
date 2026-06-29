@@ -510,15 +510,46 @@ export default function TodayScreen({ navigation }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const today = todayDate();
-      const candidates = await loadScoredTasks(user, today);
+      const [candidates, { data: profile }] = await Promise.all([
+        loadScoredTasks(user, today),
+        supabase
+          .from('profiles')
+          .select('wake_minutes, sleep_minutes, breakfast_minutes, lunch_minutes, dinner_minutes, break_minutes')
+          .eq('id', user.id)
+          .single(),
+      ]);
 
-      // Start from next 30-min boundary, minimum 8 AM, maximum 9 PM
+      // Bounds from user's routine (fall back to sensible defaults)
       const now = new Date();
       const currentMins = now.getHours() * 60 + now.getMinutes();
-      const START_MIN = Math.max(8 * 60, Math.ceil(currentMins / 30) * 30);
-      const END_MIN   = 21 * 60;
+      const wakeMin  = profile?.wake_minutes  ?? 8 * 60;
+      const sleepMin = profile?.sleep_minutes ?? 21 * 60;
+      const breakMin = profile?.break_minutes ?? 15;
+      const START_MIN = Math.max(wakeMin, Math.ceil(currentMins / 30) * 30);
+      const END_MIN   = sleepMin;
 
-      // Energy ideal at different times of day
+      // Meal windows to block out (30 min each)
+      const mealBlocks = [
+        profile?.breakfast_minutes,
+        profile?.lunch_minutes,
+        profile?.dinner_minutes,
+      ]
+        .filter((t) => t != null)
+        .map((t) => ({ start: t, end: t + 30 }));
+
+      function advancePastMeals(cursor) {
+        let c = cursor;
+        for (const meal of mealBlocks) {
+          if (c >= meal.start && c < meal.end) c = meal.end;
+        }
+        return c;
+      }
+
+      function overlapsMeal(start, duration) {
+        const end = start + duration;
+        return mealBlocks.some((m) => start < m.end && end > m.start);
+      }
+
       function idealEnergyAt(mins) {
         if (mins < 12 * 60) return 'high';
         if (mins < 17 * 60) return 'medium';
@@ -527,12 +558,13 @@ export default function TodayScreen({ navigation }) {
 
       const remaining = [...candidates];
       const slots = [];
-      let cursor = START_MIN;
+      let cursor = advancePastMeals(START_MIN);
 
       while (cursor < END_MIN && slots.length < 6 && remaining.length > 0) {
-        const ideal = idealEnergyAt(cursor);
+        cursor = advancePastMeals(cursor);
+        if (cursor >= END_MIN) break;
 
-        // Re-rank remaining by base score + time-of-day energy bonus
+        const ideal = idealEnergyAt(cursor);
         remaining.sort((a, b) => {
           const aBonus = (a.task.energy_level || 'medium') === ideal ? 20 : 0;
           const bBonus = (b.task.energy_level || 'medium') === ideal ? 20 : 0;
@@ -542,10 +574,14 @@ export default function TodayScreen({ navigation }) {
         const pick = remaining.shift();
         const duration = pick.task.daily_timebox_minutes || 30;
 
-        if (cursor + duration > END_MIN) break;
+        if (cursor + duration > END_MIN || overlapsMeal(cursor, duration)) {
+          cursor += 30;
+          remaining.unshift(pick);
+          continue;
+        }
 
         slots.push({ task: pick.task, startMinutes: cursor, duration, reason: pick.reason });
-        cursor += duration + 15; // 15-min buffer between tasks
+        cursor += duration + breakMin;
       }
 
       setSuggestedSchedule(slots);
