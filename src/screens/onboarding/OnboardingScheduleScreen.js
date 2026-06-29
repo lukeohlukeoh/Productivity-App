@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import { colors, fonts } from '../../lib/theme';
+import WheelPicker from '../../components/WheelPicker';
 
 // ─── Time options ─────────────────────────────────────────────────────────────
 
@@ -124,20 +125,16 @@ export default function OnboardingScheduleScreen({ navigation }) {
 
         {/* Wake up */}
         <Section label="When do you wake up?">
-          <PillRow
-            options={WAKE_OPTIONS}
-            value={wakeMinutes}
-            onChange={setWakeMinutes}
-          />
+          <View style={styles.wheelCard}>
+            <WheelPicker options={WAKE_OPTIONS} value={wakeMinutes} onChange={setWakeMinutes} />
+          </View>
         </Section>
 
         {/* Bedtime */}
         <Section label="When do you usually go to sleep?">
-          <PillRow
-            options={SLEEP_OPTIONS}
-            value={sleepMinutes}
-            onChange={setSleepMinutes}
-          />
+          <View style={styles.wheelCard}>
+            <WheelPicker options={SLEEP_OPTIONS} value={sleepMinutes} onChange={setSleepMinutes} />
+          </View>
         </Section>
 
         {/* Meals */}
@@ -280,6 +277,14 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     color: colors.text,
     marginBottom: 12,
+  },
+
+  wheelCard: {
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
   },
 
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
