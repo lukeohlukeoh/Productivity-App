@@ -1440,7 +1440,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     paddingHorizontal: 20,
     paddingTop: 14,
-    paddingBottom: 28,
+    paddingBottom: 48,
     gap: 10,
   },
   dockSecondBtn: {
