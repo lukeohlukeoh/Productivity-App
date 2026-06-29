@@ -81,6 +81,9 @@ export default function TaskFormScreen({ route, navigation }) {
   const [timeboxMinutes, setTimeboxMinutes] = useState(
     task?.daily_timebox_minutes ? String(task.daily_timebox_minutes) : ''
   );
+  const [recurringDuration, setRecurringDuration] = useState(
+    task?.task_type === 'recurring' ? (task?.daily_timebox_minutes || null) : null
+  );
   const [subtasks, setSubtasks]             = useState([]);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [newSubtaskMins, setNewSubtaskMins]   = useState('');
@@ -111,6 +114,7 @@ export default function TaskFormScreen({ route, navigation }) {
         setTaskType('recurring');
         setPlanningMethod('subtasks');
         setTimeboxMinutes('');
+        setRecurringDuration(null);
         setSubtasks([]);
         setTaskTypeTooltip(null);
       }
@@ -147,6 +151,8 @@ export default function TaskFormScreen({ route, navigation }) {
       daily_timebox_minutes:
         taskType === 'project' && planningMethod === 'timebox' && timeboxMinutes
           ? parseInt(timeboxMinutes, 10)
+          : taskType === 'recurring' && recurringDuration
+          ? recurringDuration
           : null,
     };
 
@@ -356,6 +362,30 @@ export default function TaskFormScreen({ route, navigation }) {
                 })}
               </View>
             </>
+          )}
+
+          {/* ── Recurring duration ── */}
+          {taskType === 'recurring' && (
+            <View style={styles.projectSection}>
+              <Text style={styles.sublabel}>Preferred session duration (optional)</Text>
+              <View style={styles.durationGrid}>
+                {[15, 30, 45, 60, 90, 120].map((d) => {
+                  const active = recurringDuration === d;
+                  return (
+                    <TouchableOpacity
+                      key={d}
+                      style={[styles.durationPill, active && styles.durationPillActive]}
+                      onPress={() => setRecurringDuration(active ? null : d)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.durationPillText, active && styles.durationPillTextActive]}>
+                        {d < 60 ? `${d} min` : `${d / 60} hr`}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
           )}
 
           {/* ── Project planning options ── */}
@@ -647,6 +677,26 @@ const styles = StyleSheet.create({
   },
   saveBtnText:    { color: '#fff', fontFamily: fonts.bold, fontSize: 16 },
   buttonDisabled: { opacity: 0.6 },
+
+  durationGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  durationPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  durationPillActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  durationPillText: { fontSize: 14, fontFamily: fonts.medium, color: colors.muted },
+  durationPillTextActive: { color: colors.primary, fontFamily: fonts.semiBold },
 
   labelError: { color: colors.danger },
   inputError:  { borderColor: colors.danger, borderWidth: 1.5 },

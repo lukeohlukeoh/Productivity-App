@@ -292,7 +292,7 @@ export default function TodayScreen({ navigation }) {
     // All non-archived tasks belonging to the user's categories
     const { data, error } = await supabase
       .from('tasks')
-      .select('id, title, energy_level, task_type, categories(name)')
+      .select('id, title, energy_level, task_type, daily_timebox_minutes, categories(name)')
       .eq('is_archived', false)
       .order('title', { ascending: true });
 
@@ -701,7 +701,12 @@ export default function TodayScreen({ navigation }) {
         </View>
 
         {/* Duration */}
-        <Text style={styles.scheduleLabel}>Duration</Text>
+        <View style={styles.scheduleLabelRow}>
+          <Text style={styles.scheduleLabel}>Duration</Text>
+          {selectedPickerTask?.daily_timebox_minutes && scheduleDuration === selectedPickerTask.daily_timebox_minutes && (
+            <Text style={styles.preferredLabel}>your preferred</Text>
+          )}
+        </View>
         <View style={styles.durationRow}>
           {DURATION_OPTIONS.map((d) => (
             <TouchableOpacity
@@ -978,6 +983,13 @@ const styles = StyleSheet.create({
   scheduleLabel: {
     fontSize: 12, fontFamily: fonts.semiBold, color: colors.muted,
     marginBottom: 8, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.4,
+  },
+  scheduleLabelRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+  },
+  preferredLabel: {
+    fontSize: 11, fontFamily: fonts.medium, color: colors.primary,
+    marginBottom: 8, marginTop: 4,
   },
 
   // Energy sheet
