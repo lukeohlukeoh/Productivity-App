@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gig-tracker-ph",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "C:\\Users\\Luke\\gig-tracker-ph", "run", "dev", "--", "--port", "5174"],
+      "port": 5174
+    }
+  ]
+}

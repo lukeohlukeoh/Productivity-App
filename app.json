@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Adaptive Daily Planner",
+    "slug": "adaptive-daily-planner",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "com.adaptiveplanner.app"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font"
+    ]
+  }
+}
