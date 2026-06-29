@@ -87,9 +87,9 @@ export default function MainTabs() {
           backgroundColor: colors.card,
           borderTopColor:  colors.border,
           borderTopWidth:  1,
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 6,
+          height: 80,
+          paddingBottom: 24,
+          paddingTop: 10,
         },
         tabBarLabelStyle: {
           fontSize: 11,
