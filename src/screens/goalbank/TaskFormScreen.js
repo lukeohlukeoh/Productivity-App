@@ -87,8 +87,9 @@ export default function TaskFormScreen({ route, navigation }) {
 
   // ── Category state ────────────────────────────────────────────────────────
 
-  const [categories, setCategories]               = useState(paramCategories || []);
-  const [saving, setSaving] = useState(false);
+  const [categories, setCategories] = useState(paramCategories || []);
+  const [saving, setSaving]         = useState(false);
+  const [errors, setErrors]         = useState({});
 
   // ── Tooltip state ─────────────────────────────────────────────────────────
   const [categoryTooltipVisible, setCategoryTooltipVisible] = useState(false);
@@ -129,14 +130,14 @@ export default function TaskFormScreen({ route, navigation }) {
   // ── Save ──────────────────────────────────────────────────────────────────
 
   async function handleSave() {
-    if (!title.trim()) {
-      Alert.alert('Task name required', 'Please enter a name for this task.');
+    const newErrors = {};
+    if (!title.trim())        newErrors.title    = true;
+    if (!selectedCategoryId)  newErrors.category = true;
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
       return;
     }
-    if (!selectedCategoryId) {
-      Alert.alert('Category required', 'Please choose a category for this task.');
-      return;
-    }
+    setErrors({});
 
     const payload = {
       title:       title.trim(),
@@ -246,18 +247,19 @@ export default function TaskFormScreen({ route, navigation }) {
           </TouchableOpacity>
 
           {/* ── 1. Task name ── */}
-          <Text style={styles.label}>Task Name</Text>
+          <Text style={[styles.label, errors.title && styles.labelError]}>Task Name</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, errors.title && styles.inputError]}
             placeholder="What do you want to work on?"
             placeholderTextColor={colors.muted}
             value={title}
-            onChangeText={setTitle}
+            onChangeText={(v) => { setTitle(v); if (v.trim()) setErrors((e) => ({ ...e, title: undefined })); }}
           />
+          {errors.title && <Text style={styles.errorText}>Please enter a task name.</Text>}
 
           {/* ── 2. Category ── */}
           <View style={styles.labelRow}>
-            <Text style={[styles.label, styles.labelInRow]}>Category</Text>
+            <Text style={[styles.label, styles.labelInRow, errors.category && styles.labelError]}>Category</Text>
             <TouchableOpacity
               onPress={() => setCategoryTooltipVisible(!categoryTooltipVisible)}
               hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
@@ -281,8 +283,8 @@ export default function TaskFormScreen({ route, navigation }) {
                 return (
                   <TouchableOpacity
                     key={cat.id}
-                    style={[styles.categoryBtn, active && styles.categoryBtnActive]}
-                    onPress={() => setSelectedCategoryId(cat.id)}
+                    style={[styles.categoryBtn, active && styles.categoryBtnActive, errors.category && !active && styles.categoryBtnError]}
+                    onPress={() => { setSelectedCategoryId(cat.id); setErrors((e) => ({ ...e, category: undefined })); }}
                     activeOpacity={0.75}
                   >
                     <Text style={[styles.categoryBtnText, active && styles.categoryBtnTextActive]}>
@@ -293,6 +295,8 @@ export default function TaskFormScreen({ route, navigation }) {
               })}
             </View>
           )}
+
+          {errors.category && <Text style={styles.errorText}>Please select a category.</Text>}
 
           {/* ── 3. Energy level ── */}
           <Text style={styles.label}>Energy Level</Text>
@@ -643,4 +647,15 @@ const styles = StyleSheet.create({
   },
   saveBtnText:    { color: '#fff', fontFamily: fonts.bold, fontSize: 16 },
   buttonDisabled: { opacity: 0.6 },
+
+  labelError: { color: colors.danger },
+  inputError:  { borderColor: colors.danger, borderWidth: 1.5 },
+  categoryBtnError: { borderColor: colors.danger },
+  errorText: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: colors.danger,
+    marginTop: 4,
+    marginBottom: 4,
+  },
 });
