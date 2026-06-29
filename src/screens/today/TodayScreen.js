@@ -145,6 +145,7 @@ export default function TodayScreen({ navigation }) {
   const [scheduleLoading, setScheduleLoading]               = useState(false);
   const [scheduleError, setScheduleError]                   = useState(null);
   const [swappingSlotIndex, setSwappingSlotIndex]           = useState(null);
+  const [replacingPlanTask, setReplacingPlanTask]           = useState(null);
 
   // Snooze modal (shown after completing a one-time task)
   const [snoozeModalVisible, setSnoozeModalVisible] = useState(false);
@@ -340,6 +341,18 @@ export default function TodayScreen({ navigation }) {
 
   function onPickerSelect(task) {
     setPickerVisible(false);
+
+    // Replace mode: swap a task already on today's timeline
+    if (replacingPlanTask !== null) {
+      const planTaskId = replacingPlanTask.id;
+      setReplacingPlanTask(null);
+      supabase
+        .from('daily_plan_tasks')
+        .update({ task_id: task.id })
+        .eq('id', planTaskId)
+        .then(() => fetchTodayPlan());
+      return;
+    }
 
     // Swap mode: replace a slot in the suggested schedule
     if (swappingSlotIndex !== null) {
@@ -788,9 +801,19 @@ export default function TodayScreen({ navigation }) {
                           item.is_complete ? markIncomplete(item) : markComplete(item),
                       },
                       {
-                        text: 'Remove from today',
+                        text: 'Replace task',
+                        onPress: () => {
+                          setReplacingPlanTask(item);
+                          openPicker();
+                        },
+                      },
+                      {
+                        text: 'Delete',
                         style: 'destructive',
-                        onPress: () => removePlanTask(item),
+                        onPress: async () => {
+                          await supabase.from('daily_plan_tasks').delete().eq('id', item.id);
+                          fetchTodayPlan();
+                        },
                       },
                       { text: 'Cancel', style: 'cancel' },
                     ])
