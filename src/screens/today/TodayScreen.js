@@ -1077,15 +1077,21 @@ export default function TodayScreen({ navigation }) {
         )}
       </BottomSheet>
 
-      {/* ── Schedule preview modal (full-screen timeline) ── */}
+      {/* ── Schedule preview pop-out ── */}
       <Modal
         visible={schedulePreviewVisible}
         animationType="slide"
-        transparent={false}
+        transparent
         onRequestClose={() => setSchedulePreviewVisible(false)}
       >
-        <SafeAreaView style={styles.schedulePreviewSafe} edges={['top']}>
-          {/* Header */}
+        <TouchableOpacity
+          style={styles.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setSchedulePreviewVisible(false)}
+        />
+        <View style={styles.schedulePreviewSheet}>
+          {/* Handle + header */}
+          <View style={styles.pickerHandle} />
           <View style={styles.schedulePreviewHeader}>
             <View>
               <Text style={styles.sheetTitle}>Suggested Schedule</Text>
@@ -1122,12 +1128,11 @@ export default function TodayScreen({ navigation }) {
               {/* Timeline */}
               <ScrollView
                 ref={schedulePreviewScrollRef}
-                style={{ flex: 1 }}
-                contentContainerStyle={{ paddingBottom: 40 }}
+                style={styles.schedulePreviewScroll}
+                contentContainerStyle={{ paddingBottom: 16 }}
                 showsVerticalScrollIndicator={false}
               >
                 <View style={[styles.timeline, { height: TIMELINE_HEIGHT, marginHorizontal: 16, marginTop: 8 }]}>
-                  {/* Hour lines */}
                   {hourLabels().map(({ h, label }) => {
                     const y = (h - HOUR_START) * 60 * PX_PER_MINUTE;
                     return (
@@ -1138,7 +1143,6 @@ export default function TodayScreen({ navigation }) {
                     );
                   })}
 
-                  {/* Current time indicator */}
                   {(() => {
                     const now = new Date();
                     const mins = now.getHours() * 60 + now.getMinutes();
@@ -1151,7 +1155,6 @@ export default function TodayScreen({ navigation }) {
                     );
                   })()}
 
-                  {/* Suggested task blocks */}
                   {suggestedSchedule.map((slot, index) => {
                     const topOffset   = minutesToY(slot.startMinutes);
                     const blockHeight = Math.max(slot.duration * PX_PER_MINUTE, 52);
@@ -1194,16 +1197,13 @@ export default function TodayScreen({ navigation }) {
                 <TouchableOpacity style={styles.confirmBtn} onPress={confirmSuggestedSchedule}>
                   <Text style={styles.confirmBtnText}>Confirm schedule</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.addModalCancel}
-                  onPress={() => setSchedulePreviewVisible(false)}
-                >
+                <TouchableOpacity style={styles.addModalCancel} onPress={() => setSchedulePreviewVisible(false)}>
                   <Text style={styles.addModalCancelText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             </>
           )}
-        </SafeAreaView>
+        </View>
       </Modal>
 
       {/* ── Snooze modal (one-time tasks) ── */}
@@ -1610,28 +1610,27 @@ const styles = StyleSheet.create({
   },
   addModalCancelText: { fontSize: 15, fontFamily: fonts.medium, color: colors.muted },
 
-  // Schedule preview (full-screen timeline)
-  schedulePreviewSafe: { flex: 1, backgroundColor: colors.background },
+  // Schedule preview (pop-out sheet)
+  schedulePreviewSheet: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 0,
+    maxHeight: '85%',
+  },
   schedulePreviewHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.card,
+    marginBottom: 12,
   },
   schedulePreviewSub: { fontSize: 13, fontFamily: fonts.regular, color: colors.muted, marginTop: 2 },
-  schedulePreviewClose: { padding: 6 },
+  schedulePreviewClose: { padding: 4 },
   schedulePreviewCloseText: { fontSize: 18, color: colors.muted },
+  schedulePreviewScroll: { maxHeight: '100%' },
   schedulePreviewFooter: {
-    backgroundColor: colors.card,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingHorizontal: 20,
-    paddingTop: 14,
+    paddingTop: 12,
     paddingBottom: 28,
     gap: 8,
   },
