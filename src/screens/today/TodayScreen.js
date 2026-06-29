@@ -26,6 +26,12 @@ const ENERGY_OPTIONS = [
   { value: 'low',    emoji: '🟢', label: 'Low'    },
 ];
 
+const ENERGY_COLORS = {
+  high:   { bg: colors.energyHighBg,   border: colors.energyHigh,   text: colors.energyHigh   },
+  medium: { bg: colors.energyMediumBg, border: colors.energyMedium, text: colors.energyMedium },
+  low:    { bg: colors.energyLowBg,    border: colors.energyLow,    text: colors.energyLow    },
+};
+
 const SNOOZE_OPTIONS = [
   { label: 'Snooze 3 days',  days: 3  },
   { label: 'Snooze 1 week',  days: 7  },
@@ -101,8 +107,9 @@ export default function TodayScreen({ navigation }) {
   const [loading, setLoading]             = useState(true);
   const [currentEnergy, setCurrentEnergy] = useState(null);
 
-  const scrollViewRef   = useRef(null);
-  const timelineOffsetY = useRef(0);
+  const scrollViewRef          = useRef(null);
+  const timelineOffsetY        = useRef(0);
+  const schedulePreviewScrollRef = useRef(null);
 
   // Energy check-in sheet
   const [energySheetVisible, setEnergySheetVisible] = useState(false);
@@ -542,6 +549,14 @@ export default function TodayScreen({ navigation }) {
       }
 
       setSuggestedSchedule(slots);
+
+      // Auto-scroll timeline to just before the first task
+      if (slots.length > 0) {
+        setTimeout(() => {
+          const y = Math.max(0, minutesToY(slots[0].startMinutes) - 80);
+          schedulePreviewScrollRef.current?.scrollTo({ y, animated: false });
+        }, 100);
+      }
     } catch (err) {
       setScheduleError(err.message || 'Could not build a schedule. Try again.');
     }
@@ -1062,22 +1077,27 @@ export default function TodayScreen({ navigation }) {
         )}
       </BottomSheet>
 
-      {/* ── Schedule preview modal ── */}
+      {/* ── Schedule preview modal (full-screen timeline) ── */}
       <Modal
         visible={schedulePreviewVisible}
         animationType="slide"
-        transparent
+        transparent={false}
         onRequestClose={() => setSchedulePreviewVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.pickerOverlay}
-          activeOpacity={1}
-          onPress={() => setSchedulePreviewVisible(false)}
-        />
-        <View style={styles.schedulePreviewSheet}>
-          <View style={styles.pickerHandle} />
-          <Text style={styles.sheetTitle}>Suggested Schedule</Text>
-          <Text style={styles.sheetSub}>{todayLabel} · Tap "Swap" to change any task</Text>
+        <SafeAreaView style={styles.schedulePreviewSafe} edges={['top']}>
+          {/* Header */}
+          <View style={styles.schedulePreviewHeader}>
+            <View>
+              <Text style={styles.sheetTitle}>Suggested Schedule</Text>
+              <Text style={styles.schedulePreviewSub}>{todayLabel}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.schedulePreviewClose}
+              onPress={() => setSchedulePreviewVisible(false)}
+            >
+              <Text style={styles.schedulePreviewCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
 
           {scheduleLoading ? (
             <View style={styles.aiLoadingBox}>
@@ -1092,56 +1112,98 @@ export default function TodayScreen({ navigation }) {
               </TouchableOpacity>
             </View>
           ) : suggestedSchedule.length === 0 ? (
-            <Text style={styles.aiEmptyText}>
-              Add more tasks to your goal bank to get a schedule suggestion!
-            </Text>
+            <View style={styles.aiLoadingBox}>
+              <Text style={styles.aiEmptyText}>
+                Add more tasks to your goal bank to get a schedule suggestion!
+              </Text>
+            </View>
           ) : (
             <>
-              <ScrollView showsVerticalScrollIndicator={false} style={styles.schedulePreviewScroll}>
-                {suggestedSchedule.map((slot, index) => (
-                  <View key={`${slot.task.id}-${index}`} style={styles.scheduleSlotCard}>
-                    <View style={styles.scheduleSlotTime}>
-                      <Text style={styles.scheduleSlotTimeText}>
-                        {formatDisplayTime(slot.startMinutes)}
-                      </Text>
-                      <Text style={styles.scheduleSlotDuration}>{slot.duration} min</Text>
-                    </View>
-                    <View style={styles.scheduleSlotMain}>
-                      <Text style={styles.scheduleSlotTitle}>{slot.task.title}</Text>
-                      <Text style={styles.aiRecReason}>{slot.reason}</Text>
-                      <View style={styles.aiRecMeta}>
-                        <EnergyBadge level={slot.task.energy_level} />
-                        {slot.task.categories?.name ? (
-                          <Text style={styles.aiRecCat}>{slot.task.categories.name}</Text>
-                        ) : null}
+              {/* Timeline */}
+              <ScrollView
+                ref={schedulePreviewScrollRef}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: 40 }}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={[styles.timeline, { height: TIMELINE_HEIGHT, marginHorizontal: 16, marginTop: 8 }]}>
+                  {/* Hour lines */}
+                  {hourLabels().map(({ h, label }) => {
+                    const y = (h - HOUR_START) * 60 * PX_PER_MINUTE;
+                    return (
+                      <View key={h} style={[styles.hourRow, { top: y }]}>
+                        <Text style={styles.hourLabel}>{label}</Text>
+                        <View style={styles.hourLine} />
                       </View>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.swapBtn}
-                      onPress={() => {
-                        setSwappingSlotIndex(index);
-                        setSchedulePreviewVisible(false);
-                        openPicker();
-                      }}
-                    >
-                      <Text style={styles.swapBtnText}>Swap</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
+                    );
+                  })}
+
+                  {/* Current time indicator */}
+                  {(() => {
+                    const now = new Date();
+                    const mins = now.getHours() * 60 + now.getMinutes();
+                    if (mins < HOUR_START * 60 || mins > HOUR_END * 60) return null;
+                    return (
+                      <View style={[styles.nowLine, { top: minutesToY(mins) }]}>
+                        <View style={styles.nowDot} />
+                        <View style={styles.nowBar} />
+                      </View>
+                    );
+                  })()}
+
+                  {/* Suggested task blocks */}
+                  {suggestedSchedule.map((slot, index) => {
+                    const topOffset   = minutesToY(slot.startMinutes);
+                    const blockHeight = Math.max(slot.duration * PX_PER_MINUTE, 52);
+                    const palette     = ENERGY_COLORS[slot.task.energy_level] ?? ENERGY_COLORS.medium;
+                    return (
+                      <View
+                        key={`${slot.task.id}-${index}`}
+                        style={[
+                          styles.suggestedBlock,
+                          { top: topOffset, height: blockHeight, backgroundColor: palette.bg, borderLeftColor: palette.border },
+                        ]}
+                      >
+                        <Text style={[styles.suggestedBlockTime, { color: palette.border }]}>
+                          {formatDisplayTime(slot.startMinutes)} – {formatDisplayTime(slot.startMinutes + slot.duration)}
+                        </Text>
+                        <Text
+                          style={[styles.suggestedBlockTitle, { color: palette.text }]}
+                          numberOfLines={blockHeight > 64 ? 2 : 1}
+                        >
+                          {slot.task.title}
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.swapChip}
+                          onPress={() => {
+                            setSwappingSlotIndex(index);
+                            setSchedulePreviewVisible(false);
+                            openPicker();
+                          }}
+                        >
+                          <Text style={styles.swapChipText}>swap</Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </View>
               </ScrollView>
 
-              <TouchableOpacity style={[styles.confirmBtn, { marginTop: 16 }]} onPress={confirmSuggestedSchedule}>
-                <Text style={styles.confirmBtnText}>Confirm schedule</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.addModalCancel}
-                onPress={() => setSchedulePreviewVisible(false)}
-              >
-                <Text style={styles.addModalCancelText}>Cancel</Text>
-              </TouchableOpacity>
+              {/* Footer */}
+              <View style={styles.schedulePreviewFooter}>
+                <TouchableOpacity style={styles.confirmBtn} onPress={confirmSuggestedSchedule}>
+                  <Text style={styles.confirmBtnText}>Confirm schedule</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.addModalCancel}
+                  onPress={() => setSchedulePreviewVisible(false)}
+                >
+                  <Text style={styles.addModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
             </>
           )}
-        </View>
+        </SafeAreaView>
       </Modal>
 
       {/* ── Snooze modal (one-time tasks) ── */}
@@ -1548,39 +1610,57 @@ const styles = StyleSheet.create({
   },
   addModalCancelText: { fontSize: 15, fontFamily: fonts.medium, color: colors.muted },
 
-  // Schedule preview modal
-  schedulePreviewSheet: {
-    backgroundColor: colors.card,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: 40,
-    maxHeight: '90%',
-  },
-  schedulePreviewScroll: { maxHeight: 400 },
-  scheduleSlotCard: {
+  // Schedule preview (full-screen timeline)
+  schedulePreviewSafe: { flex: 1, backgroundColor: colors.background },
+  schedulePreviewHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    gap: 12,
+    backgroundColor: colors.card,
   },
-  scheduleSlotTime: { alignItems: 'center', minWidth: 64 },
-  scheduleSlotTimeText: { fontSize: 13, fontFamily: fonts.bold, color: colors.text },
-  scheduleSlotDuration: { fontSize: 11, fontFamily: fonts.regular, color: colors.muted, marginTop: 2 },
-  scheduleSlotMain: { flex: 1 },
-  scheduleSlotTitle: { fontSize: 15, fontFamily: fonts.semiBold, color: colors.text, marginBottom: 4 },
-  swapBtn: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
+  schedulePreviewSub: { fontSize: 13, fontFamily: fonts.regular, color: colors.muted, marginTop: 2 },
+  schedulePreviewClose: { padding: 6 },
+  schedulePreviewCloseText: { fontSize: 18, color: colors.muted },
+  schedulePreviewFooter: {
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 28,
+    gap: 8,
+  },
+  suggestedBlock: {
+    position: 'absolute',
+    left: 64,
+    right: 12,
+    borderLeftWidth: 3,
     borderRadius: 8,
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    paddingHorizontal: 12,
-    alignSelf: 'flex-start',
-    marginTop: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  swapBtnText: { fontSize: 13, fontFamily: fonts.semiBold, color: colors.muted },
+  suggestedBlockTime: { fontSize: 10, fontFamily: fonts.semiBold, letterSpacing: 0.2, marginBottom: 2 },
+  suggestedBlockTitle: { fontSize: 13, fontFamily: fonts.semiBold, lineHeight: 17 },
+  swapChip: {
+    position: 'absolute',
+    top: 6,
+    right: 8,
+    backgroundColor: 'rgba(255,255,255,0.75)',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  swapChipText: { fontSize: 10, fontFamily: fonts.semiBold, color: colors.muted },
 
   // AI recommendations sheet
   aiLoadingBox:   { alignItems: 'center', paddingVertical: 40 },
