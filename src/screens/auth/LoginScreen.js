@@ -19,6 +19,19 @@ export default function LoginScreen({ navigation }) {
 
   async function handleGoogleLogin() {
     setLoading(true);
+
+    if (Platform.OS === 'web') {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: 'https://productivity-app-omega-roan.vercel.app' },
+      });
+      if (error) {
+        setLoading(false);
+        Alert.alert('Error', error.message);
+      }
+      return;
+    }
+
     const redirectTo = AuthSession.makeRedirectUri({ scheme: 'adaptive-daily-planner' });
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
