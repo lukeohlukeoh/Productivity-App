@@ -85,6 +85,15 @@ const todayLabel = new Date().toLocaleDateString('en-US', {
   weekday: 'long', month: 'long', day: 'numeric',
 });
 
+/** minutes since midnight → "9:00 AM" display string */
+function formatDisplayTime(totalMinutes) {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${displayH}:${String(m).padStart(2, '0')} ${suffix}`;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function TodayScreen({ navigation }) {
@@ -116,6 +125,19 @@ export default function TodayScreen({ navigation }) {
 
   // Add-task choice modal
   const [addModalVisible, setAddModalVisible] = useState(false);
+
+  // AI recommendations
+  const [aiSheetVisible, setAiSheetVisible]       = useState(false);
+  const [aiRecommendations, setAiRecommendations] = useState([]);
+  const [aiLoading, setAiLoading]                 = useState(false);
+  const [aiError, setAiError]                     = useState(null);
+
+  // Full-day schedule suggestion
+  const [schedulePreviewVisible, setSchedulePreviewVisible] = useState(false);
+  const [suggestedSchedule, setSuggestedSchedule]           = useState([]);
+  const [scheduleLoading, setScheduleLoading]               = useState(false);
+  const [scheduleError, setScheduleError]                   = useState(null);
+  const [swappingSlotIndex, setSwappingSlotIndex]           = useState(null);
 
   // Snooze modal (shown after completing a one-time task)
   const [snoozeModalVisible, setSnoozeModalVisible] = useState(false);
@@ -310,9 +332,24 @@ export default function TodayScreen({ navigation }) {
   }
 
   function onPickerSelect(task) {
-    setSelectedPickerTask(task);
     setPickerVisible(false);
-    // Default schedule: next full hour from now
+
+    // Swap mode: replace a slot in the suggested schedule
+    if (swappingSlotIndex !== null) {
+      setSuggestedSchedule((prev) =>
+        prev.map((slot, i) =>
+          i === swappingSlotIndex
+            ? { ...slot, task, reason: 'Manually swapped' }
+            : slot
+        )
+      );
+      setSwappingSlotIndex(null);
+      setSchedulePreviewVisible(true);
+      return;
+    }
+
+    // Normal mode: open time/duration picker
+    setSelectedPickerTask(task);
     const now = new Date();
     setScheduleHour(now.getHours() + 1 > 22 ? 22 : now.getHours() + 1);
     setScheduleMinute(0);
@@ -347,6 +384,189 @@ export default function TodayScreen({ navigation }) {
   async function handleLogout() {
     setSettingsSheetVisible(false);
     await supabase.auth.signOut();
+  }
+
+  // ── Shared scoring logic ──────────────────────────────────────────────────
+
+  async function loadScoredTasks(user, today) {
+    const { data: todayPlan } = await supabase
+      .from('daily_plan_tasks')
+      .select('task_id')
+      .eq('user_id', user.id)
+      .eq('plan_date', today);
+
+    const todayTaskIds = new Set((todayPlan || []).map((t) => t.task_id));
+
+    const { data: tasks, error: tasksError } = await supabase
+      .from('tasks')
+      .select('id, title, energy_level, task_type, daily_timebox_minutes, categories(name)')
+      .eq('is_archived', false)
+      .or(`snooze_until.is.null,snooze_until.lte.${today}`);
+
+    if (tasksError) throw tasksError;
+
+    const availableTasks = (tasks || []).filter((t) => !todayTaskIds.has(t.id));
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const { data: logs } = await supabase
+      .from('task_logs')
+      .select('task_id, completed_date')
+      .eq('user_id', user.id)
+      .gte('completed_date', thirtyDaysAgo.toISOString().split('T')[0])
+      .order('completed_date', { ascending: false });
+
+    const lastDoneMap = {};
+    for (const log of (logs || [])) {
+      if (!lastDoneMap[log.task_id]) lastDoneMap[log.task_id] = log.completed_date;
+    }
+
+    const ENERGY_LEVELS = ['low', 'medium', 'high'];
+
+    const scored = availableTasks.map((task) => {
+      let score = 0;
+      const reasons = [];
+
+      const taskEnergy = task.energy_level || 'medium';
+      if (currentEnergy) {
+        if (taskEnergy === currentEnergy) {
+          score += 40;
+          reasons.push(`matches your ${currentEnergy} energy`);
+        } else {
+          const diff = Math.abs(
+            ENERGY_LEVELS.indexOf(taskEnergy) - ENERGY_LEVELS.indexOf(currentEnergy)
+          );
+          if (diff === 1) score += 15;
+        }
+      } else {
+        score += 20;
+      }
+
+      const lastDone = lastDoneMap[task.id];
+      if (!lastDone) {
+        score += 30;
+        reasons.push("you've never done this one");
+      } else {
+        const daysSince = Math.floor(
+          (new Date(today) - new Date(lastDone)) / (1000 * 60 * 60 * 24)
+        );
+        if (daysSince >= 7)       { score += 25; reasons.push(`last done ${daysSince} days ago`); }
+        else if (daysSince >= 4)  { score += 15; reasons.push(`last done ${daysSince} days ago`); }
+        else                      { score += 5;  reasons.push(`last done ${daysSince} day${daysSince === 1 ? '' : 's'} ago`); }
+      }
+
+      if (task.task_type === 'recurring') score += 10;
+      score += Math.random() * 5;
+
+      const reason = reasons.length
+        ? reasons[0][0].toUpperCase() + reasons[0].slice(1) +
+          (reasons[1] ? ` · ${reasons[1]}` : '')
+        : 'Good fit for today';
+
+      return { task, score, reason };
+    });
+
+    return scored.sort((a, b) => b.score - a.score);
+  }
+
+  // ── "Suggest my day" (pick individual tasks) ──────────────────────────────
+
+  async function fetchSuggestions() {
+    setAddModalVisible(false);
+    setAiSheetVisible(true);
+    setAiLoading(true);
+    setAiError(null);
+    setAiRecommendations([]);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const scored = await loadScoredTasks(user, todayDate());
+
+      setAiRecommendations(
+        scored.slice(0, 5).map(({ task, reason }) => ({ task_id: task.id, reason, task }))
+      );
+    } catch (err) {
+      setAiError(err.message || 'Could not load suggestions. Try again.');
+    }
+
+    setAiLoading(false);
+  }
+
+  // ── "Suggest a schedule" (full planned day) ───────────────────────────────
+
+  async function suggestFullSchedule() {
+    setSchedulePreviewVisible(true);
+    setScheduleLoading(true);
+    setScheduleError(null);
+    setSuggestedSchedule([]);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const today = todayDate();
+      const candidates = await loadScoredTasks(user, today);
+
+      // Start from next 30-min boundary, minimum 8 AM, maximum 9 PM
+      const now = new Date();
+      const currentMins = now.getHours() * 60 + now.getMinutes();
+      const START_MIN = Math.max(8 * 60, Math.ceil(currentMins / 30) * 30);
+      const END_MIN   = 21 * 60;
+
+      // Energy ideal at different times of day
+      function idealEnergyAt(mins) {
+        if (mins < 12 * 60) return 'high';
+        if (mins < 17 * 60) return 'medium';
+        return 'low';
+      }
+
+      const remaining = [...candidates];
+      const slots = [];
+      let cursor = START_MIN;
+
+      while (cursor < END_MIN && slots.length < 6 && remaining.length > 0) {
+        const ideal = idealEnergyAt(cursor);
+
+        // Re-rank remaining by base score + time-of-day energy bonus
+        remaining.sort((a, b) => {
+          const aBonus = (a.task.energy_level || 'medium') === ideal ? 20 : 0;
+          const bBonus = (b.task.energy_level || 'medium') === ideal ? 20 : 0;
+          return (b.score + bBonus) - (a.score + aBonus);
+        });
+
+        const pick = remaining.shift();
+        const duration = pick.task.daily_timebox_minutes || 30;
+
+        if (cursor + duration > END_MIN) break;
+
+        slots.push({ task: pick.task, startMinutes: cursor, duration, reason: pick.reason });
+        cursor += duration + 15; // 15-min buffer between tasks
+      }
+
+      setSuggestedSchedule(slots);
+    } catch (err) {
+      setScheduleError(err.message || 'Could not build a schedule. Try again.');
+    }
+
+    setScheduleLoading(false);
+  }
+
+  async function confirmSuggestedSchedule() {
+    setSchedulePreviewVisible(false);
+    const { data: { user } } = await supabase.auth.getUser();
+
+    const { error } = await supabase.from('daily_plan_tasks').insert(
+      suggestedSchedule.map((slot) => ({
+        user_id:           user.id,
+        task_id:           slot.task.id,
+        plan_date:         todayDate(),
+        estimated_minutes: slot.duration,
+        is_complete:       false,
+        carried_over:      false,
+        start_time:        minutesToTime(slot.startMinutes),
+      }))
+    );
+
+    if (error) Alert.alert('Error', error.message);
+    else { fetchTodayPlan(); setSuggestedSchedule([]); }
   }
 
   // ── Derived data ───────────────────────────────────────────────────────────
@@ -531,13 +751,19 @@ export default function TodayScreen({ navigation }) {
         </ScrollView>
       )}
 
-      {/* ── Docked Add button ── */}
+      {/* ── Docked buttons ── */}
       <View style={styles.dock}>
         <TouchableOpacity
           style={styles.dockMainBtn}
           onPress={() => setAddModalVisible(true)}
         >
           <Text style={styles.dockMainText}>＋ TASK</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.dockSecondBtn}
+          onPress={suggestFullSchedule}
+        >
+          <Text style={styles.dockSecondText}>✨ Suggest a schedule</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.dockViewLink}
@@ -757,11 +983,164 @@ export default function TodayScreen({ navigation }) {
             </View>
           </TouchableOpacity>
           <TouchableOpacity
+            style={styles.addModalOption}
+            onPress={fetchSuggestions}
+          >
+            <Text style={styles.addModalOptionIcon}>✨</Text>
+            <View style={styles.addModalOptionText}>
+              <Text style={styles.addModalOptionLabel}>Suggest my day</Text>
+              <Text style={styles.addModalOptionSub}>Smart picks based on your energy and history</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={styles.addModalCancel}
             onPress={() => setAddModalVisible(false)}
           >
             <Text style={styles.addModalCancelText}>Cancel</Text>
           </TouchableOpacity>
+        </View>
+      </Modal>
+
+      {/* ── Suggestions sheet ── */}
+      <BottomSheet
+        visible={aiSheetVisible}
+        onClose={() => setAiSheetVisible(false)}
+        style={{ maxHeight: '85%' }}
+      >
+        <Text style={styles.sheetTitle}>Suggested for Today</Text>
+        <Text style={styles.sheetSub}>
+          {currentEnergy
+            ? `Based on your ${currentEnergy} energy and recent history`
+            : 'Based on your goal bank and recent history'}
+        </Text>
+
+        {aiLoading ? (
+          <View style={styles.aiLoadingBox}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.aiLoadingText}>Finding your best tasks...</Text>
+          </View>
+        ) : aiError ? (
+          <View style={styles.aiErrorBox}>
+            <Text style={styles.aiErrorText}>{aiError}</Text>
+            <TouchableOpacity onPress={fetchSuggestions} style={styles.aiRetryBtn}>
+              <Text style={styles.aiRetryText}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        ) : aiRecommendations.length === 0 ? (
+          <Text style={styles.aiEmptyText}>
+            No suggestions available. Add more tasks to your goal bank!
+          </Text>
+        ) : (
+          <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 400 }}>
+            {aiRecommendations.map((rec) => (
+              <View key={rec.task_id} style={styles.aiRecCard}>
+                <View style={styles.aiRecContent}>
+                  <Text style={styles.aiRecTitle}>{rec.task?.title}</Text>
+                  <Text style={styles.aiRecReason}>{rec.reason}</Text>
+                  <View style={styles.aiRecMeta}>
+                    <EnergyBadge level={rec.task?.energy_level} />
+                    {rec.task?.categories?.name ? (
+                      <Text style={styles.aiRecCat}>{rec.task.categories.name}</Text>
+                    ) : null}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.aiAddBtn}
+                  onPress={() => {
+                    setAiSheetVisible(false);
+                    onPickerSelect(rec.task);
+                  }}
+                >
+                  <Text style={styles.aiAddBtnText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            <TouchableOpacity style={styles.aiRefreshBtn} onPress={fetchSuggestions}>
+              <Text style={styles.aiRefreshText}>Different picks</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        )}
+      </BottomSheet>
+
+      {/* ── Schedule preview modal ── */}
+      <Modal
+        visible={schedulePreviewVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSchedulePreviewVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setSchedulePreviewVisible(false)}
+        />
+        <View style={styles.schedulePreviewSheet}>
+          <View style={styles.pickerHandle} />
+          <Text style={styles.sheetTitle}>Suggested Schedule</Text>
+          <Text style={styles.sheetSub}>{todayLabel} · Tap "Swap" to change any task</Text>
+
+          {scheduleLoading ? (
+            <View style={styles.aiLoadingBox}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.aiLoadingText}>Building your day...</Text>
+            </View>
+          ) : scheduleError ? (
+            <View style={styles.aiErrorBox}>
+              <Text style={styles.aiErrorText}>{scheduleError}</Text>
+              <TouchableOpacity onPress={suggestFullSchedule} style={styles.aiRetryBtn}>
+                <Text style={styles.aiRetryText}>Try again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : suggestedSchedule.length === 0 ? (
+            <Text style={styles.aiEmptyText}>
+              Add more tasks to your goal bank to get a schedule suggestion!
+            </Text>
+          ) : (
+            <>
+              <ScrollView showsVerticalScrollIndicator={false} style={styles.schedulePreviewScroll}>
+                {suggestedSchedule.map((slot, index) => (
+                  <View key={`${slot.task.id}-${index}`} style={styles.scheduleSlotCard}>
+                    <View style={styles.scheduleSlotTime}>
+                      <Text style={styles.scheduleSlotTimeText}>
+                        {formatDisplayTime(slot.startMinutes)}
+                      </Text>
+                      <Text style={styles.scheduleSlotDuration}>{slot.duration} min</Text>
+                    </View>
+                    <View style={styles.scheduleSlotMain}>
+                      <Text style={styles.scheduleSlotTitle}>{slot.task.title}</Text>
+                      <Text style={styles.aiRecReason}>{slot.reason}</Text>
+                      <View style={styles.aiRecMeta}>
+                        <EnergyBadge level={slot.task.energy_level} />
+                        {slot.task.categories?.name ? (
+                          <Text style={styles.aiRecCat}>{slot.task.categories.name}</Text>
+                        ) : null}
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.swapBtn}
+                      onPress={() => {
+                        setSwappingSlotIndex(index);
+                        setSchedulePreviewVisible(false);
+                        openPicker();
+                      }}
+                    >
+                      <Text style={styles.swapBtnText}>Swap</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+
+              <TouchableOpacity style={[styles.confirmBtn, { marginTop: 16 }]} onPress={confirmSuggestedSchedule}>
+                <Text style={styles.confirmBtnText}>Confirm schedule</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.addModalCancel}
+                onPress={() => setSchedulePreviewVisible(false)}
+              >
+                <Text style={styles.addModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </Modal>
 
@@ -956,6 +1335,22 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     gap: 10,
   },
+  dockSecondBtn: {
+    width: '100%',
+    borderRadius: 50,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  dockSecondText: {
+    fontSize: 15,
+    fontFamily: fonts.semiBold,
+    color: colors.primary,
+    letterSpacing: 0.3,
+  },
+
   dockMainBtn: {
     width: '100%',
     backgroundColor: colors.primary,
@@ -1152,6 +1547,63 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   addModalCancelText: { fontSize: 15, fontFamily: fonts.medium, color: colors.muted },
+
+  // Schedule preview modal
+  schedulePreviewSheet: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 40,
+    maxHeight: '90%',
+  },
+  schedulePreviewScroll: { maxHeight: 400 },
+  scheduleSlotCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: 12,
+  },
+  scheduleSlotTime: { alignItems: 'center', minWidth: 64 },
+  scheduleSlotTimeText: { fontSize: 13, fontFamily: fonts.bold, color: colors.text },
+  scheduleSlotDuration: { fontSize: 11, fontFamily: fonts.regular, color: colors.muted, marginTop: 2 },
+  scheduleSlotMain: { flex: 1 },
+  scheduleSlotTitle: { fontSize: 15, fontFamily: fonts.semiBold, color: colors.text, marginBottom: 4 },
+  swapBtn: {
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  swapBtnText: { fontSize: 13, fontFamily: fonts.semiBold, color: colors.muted },
+
+  // AI recommendations sheet
+  aiLoadingBox:   { alignItems: 'center', paddingVertical: 40 },
+  aiLoadingText:  { marginTop: 14, fontSize: 14, fontFamily: fonts.regular, color: colors.muted },
+  aiErrorBox:     { alignItems: 'center', paddingVertical: 24 },
+  aiErrorText:    { fontSize: 14, fontFamily: fonts.regular, color: '#ef4444', textAlign: 'center', marginBottom: 12 },
+  aiRetryBtn:     { paddingVertical: 8, paddingHorizontal: 20 },
+  aiRetryText:    { fontSize: 15, fontFamily: fonts.semiBold, color: colors.primary },
+  aiEmptyText:    { fontSize: 14, fontFamily: fonts.regular, color: colors.muted, textAlign: 'center', paddingVertical: 24 },
+  aiRecCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    padding: 14, borderRadius: 12, marginBottom: 10,
+    backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border,
+  },
+  aiRecContent:   { flex: 1 },
+  aiRecTitle:     { fontSize: 15, fontFamily: fonts.semiBold, color: colors.text, marginBottom: 4 },
+  aiRecReason:    { fontSize: 12, fontFamily: fonts.regular, color: colors.muted, lineHeight: 18, marginBottom: 6 },
+  aiRecMeta:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  aiRecCat:       { fontSize: 11, fontFamily: fonts.regular, color: colors.muted },
+  aiAddBtn:       { backgroundColor: colors.primary, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14 },
+  aiAddBtnText:   { fontSize: 14, fontFamily: fonts.bold, color: '#fff' },
+  aiRefreshBtn:   { alignItems: 'center', paddingVertical: 14, marginTop: 4 },
+  aiRefreshText:  { fontSize: 14, fontFamily: fonts.medium, color: colors.muted, textDecorationLine: 'underline' },
 
   // Snooze modal
   snoozeOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
