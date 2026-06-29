@@ -1,17 +1,44 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { colors, fonts } from '../lib/theme';
 
-import GoalBankScreen   from '../screens/goalbank/GoalBankScreen';
-import CategoryScreen   from '../screens/goalbank/CategoryScreen';
-import TaskFormScreen   from '../screens/goalbank/TaskFormScreen';
-import TodayScreen      from '../screens/today/TodayScreen';
-import ScheduleScreen   from '../screens/schedule/ScheduleScreen';
+import GoalBankScreen    from '../screens/goalbank/GoalBankScreen';
+import CategoryScreen    from '../screens/goalbank/CategoryScreen';
+import TaskFormScreen    from '../screens/goalbank/TaskFormScreen';
+import TodayScreen       from '../screens/today/TodayScreen';
+import EditRoutineScreen from '../screens/today/EditRoutineScreen';
+import ScheduleScreen    from '../screens/schedule/ScheduleScreen';
 
 const Tab           = createBottomTabNavigator();
 const GoalBankStack = createNativeStackNavigator();
+const TodayStack    = createNativeStackNavigator();
+
+function TodayNavigator() {
+  return (
+    <TodayStack.Navigator
+      screenOptions={{
+        headerStyle:      { backgroundColor: colors.background },
+        headerTintColor:  colors.primary,
+        headerTitleStyle: { fontFamily: fonts.bold, fontSize: 17, color: colors.text },
+        headerShadowVisible: false,
+        headerBackTitle:  'Today',
+      }}
+    >
+      <TodayStack.Screen
+        name="TodayHome"
+        component={TodayScreen}
+        options={{ headerShown: false }}
+      />
+      <TodayStack.Screen
+        name="EditRoutine"
+        component={EditRoutineScreen}
+        options={{ title: 'My Routine' }}
+      />
+    </TodayStack.Navigator>
+  );
+}
 
 function GoalBankNavigator() {
   return (
@@ -71,7 +98,7 @@ export default function MainTabs() {
         tabBarIcon: ({ focused }) => <TabIcon focused={focused} />,
       })}
     >
-      <Tab.Screen name="Today"    component={TodayScreen}       />
+      <Tab.Screen name="Today"    component={TodayNavigator}    />
       <Tab.Screen
         name="GoalBank"
         component={GoalBankNavigator}

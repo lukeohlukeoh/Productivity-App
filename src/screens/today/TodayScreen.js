@@ -865,9 +865,19 @@ export default function TodayScreen({ navigation }) {
         <Text style={styles.sheetTitle}>Account</Text>
         <TouchableOpacity
           style={styles.settingsRow}
+          onPress={() => {
+            setSettingsSheetVisible(false);
+            navigation.navigate('EditRoutine');
+          }}
+        >
+          <Text style={styles.settingsRowText}>Edit my routine</Text>
+          <Text style={styles.settingsRowChevron}>›</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.settingsRow, styles.settingsRowLast]}
           onPress={handleLogout}
         >
-          <Text style={styles.settingsRowText}>Sign out</Text>
+          <Text style={[styles.settingsRowText, styles.settingsRowDanger]}>Sign out</Text>
           <Text style={styles.settingsRowChevron}>›</Text>
         </TouchableOpacity>
       </BottomSheet>
@@ -1522,6 +1532,8 @@ const styles = StyleSheet.create({
   },
   settingsRowText:    { fontSize: 16, fontFamily: fonts.medium, color: colors.text },
   settingsRowChevron: { fontSize: 20, color: colors.muted },
+  settingsRowLast:    { borderBottomWidth: 0 },
+  settingsRowDanger:  { color: colors.error || '#E53935' },
 
   // Picker sheet
   pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
