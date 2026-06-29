@@ -3,6 +3,7 @@
     "name": "Adaptive Daily Planner",
     "slug": "adaptive-daily-planner",
     "version": "1.0.0",
+    "scheme": "adaptive-daily-planner",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
@@ -13,7 +14,8 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      "expo-web-browser"
     ]
   }
 }

@@ -5,13 +5,32 @@ import {
   Platform, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
 import { supabase } from '../../lib/supabase';
 import { colors, fonts } from '../../lib/theme';
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading]   = useState(false);
+
+  async function handleGoogleLogin() {
+    setLoading(true);
+    const redirectTo = AuthSession.makeRedirectUri({ scheme: 'adaptive-daily-planner' });
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo, skipBrowserRedirect: true },
+    });
+    if (error || !data?.url) {
+      setLoading(false);
+      return Alert.alert('Error', error?.message ?? 'Could not start Google login');
+    }
+    await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+    setLoading(false);
+  }
 
   async function handleLogin() {
     if (!email || !password) {
@@ -67,6 +86,20 @@ export default function LoginScreen({ navigation }) {
                 ? <ActivityIndicator color="#fff" />
                 : <Text style={styles.buttonText}>Sign In</Text>
               }
+            </TouchableOpacity>
+
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <TouchableOpacity
+              style={[styles.googleButton, loading && styles.buttonDisabled]}
+              onPress={handleGoogleLogin}
+              disabled={loading}
+            >
+              <Text style={styles.googleButtonText}>Continue with Google</Text>
             </TouchableOpacity>
           </View>
 
@@ -142,6 +175,35 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontFamily: fonts.bold, fontSize: 16 },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  dividerText: {
+    marginHorizontal: 10,
+    fontFamily: fonts.regular,
+    color: colors.muted,
+    fontSize: 13,
+  },
+  googleButton: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    padding: 14,
+    alignItems: 'center',
+    backgroundColor: colors.background,
+  },
+  googleButtonText: {
+    color: colors.text,
+    fontFamily: fonts.semiBold,
+    fontSize: 16,
+  },
   switchText: {
     textAlign: 'center',
     fontFamily: fonts.regular,
